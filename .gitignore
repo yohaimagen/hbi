@@ -1,0 +1,16 @@
+# Compiled Object files
+*.o
+
+# Fortran module files
+*.mod
+
+# Executables
+lhbiem
+
+# Logs
+*.log
+log
+
+# Python cache
+__pycache__/
+*.py[cod]

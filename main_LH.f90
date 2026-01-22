@@ -667,6 +667,17 @@ program main
       tau(i)=rdata(m-NCELLg+i_)
     end do
 
+    !new state input code
+    write(fname,'("output/psi",i0,".dat")') number
+    open(nout(1),file=fname,form='unformatted',access='stream')
+    read(nout(1)) rdata
+    close(nout(1))
+    do i=1,NCELL
+      i_=st_sum%lodc(i)
+      psi(i)=rdata(m-NCELLg+i_)
+    end do
+    ! --- NEW CODE END ---
+
     if(viscous) then
       write(fname,'("output/vflow",i0,".dat")') number
       open(nout(1),file=fname,form='unformatted',access='stream')
@@ -744,6 +755,13 @@ program main
     write(fname,'("output/tau",i0,".dat")') number
     open(nout(4),file=fname,form='unformatted',access='stream',status='old',position='append')
     nout(5)=nout(4)+np
+    !new state output code
+    write(fname,'("output/psi",i0,".dat")') number
+    ! Using nout(12) assuming 1-11 are taken or reserved. 
+    ! Ensure nout array is large enough (declared as nout(20) at top, so it is safe).
+    nout(12)=nout(11)+1 
+    open(nout(12),file=fname,form='unformatted',access='stream',status='replace')
+    ! --- NEW CODE END ---
     write(fname,'("output/EQslip",i0,".dat")') number
     open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
 
@@ -903,6 +921,13 @@ program main
       nout(5)=nout(4)+1
       write(fname,'("output/EQslip",i0,".dat")') number
       open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
+      !new state output code
+      write(fname,'("output/psi",i0,".dat")') number
+      ! Using nout(12) assuming 1-11 are taken or reserved. 
+      ! Ensure nout array is large enough (declared as nout(20) at top, so it is safe).
+      nout(12)=nout(11)+1 
+      open(nout(12),file=fname,form='unformatted',access='stream',status='replace')
+      ! --- NEW CODE END ---
       
       if(viscous) then
         nout(6)=nout(5)+1
@@ -1319,10 +1344,16 @@ contains
     !integer::nn,rcounts(npd),displs(npd+1)
     integer::mvel_loc(1),i_!,listG(NCELLg),i_
     real(8)::velG(NCELLg),tauG(NCELLg),sigmaG(Ncellg),slipG(ncellg),vflowg(ncellg),vslipG(ncellg),velnG(ncellg),slipnG(Ncellg)
+    !new for psi output
+    real(8)::psiG(NCELLg), psiG2(NCELLg)
+    !end new code
     real(8)::velG2(NCELLg),tauG2(NCELLg),sigmaG2(Ncellg),slipG2(ncellg),vflowg2(ncellg),vslipG2(ncellg),velnG2(ncellg),slipnG2(Ncellg)
 
     call MPI_GATHERv(vel,NCELL,MPI_REAL8,velG,rcounts,displs,MPI_REAL8,st_ctl%lpmd(37),st_ctl%lpmd(31),ierr)
     call MPI_GATHERv(tau,NCELL,MPI_REAL8,tauG,rcounts,displs,MPI_REAL8,st_ctl%lpmd(37),st_ctl%lpmd(31),ierr)
+    !new for psi output
+    call MPI_GATHERv(psi,NCELL,MPI_REAL8,psiG,rcounts,displs,MPI_REAL8,st_ctl%lpmd(37),st_ctl%lpmd(31),ierr)
+    !end new code
     call MPI_GATHERv(sigma,NCELL,MPI_REAL8,sigmaG,rcounts,displs,MPI_REAL8,st_ctl%lpmd(37),st_ctl%lpmd(31),ierr)
     call MPI_GATHERv(slip,NCELL,MPI_REAL8,slipG,rcounts,displs,MPI_REAL8,st_ctl%lpmd(37),st_ctl%lpmd(31),ierr)
     if(viscous) then
@@ -1341,11 +1372,17 @@ contains
         slipG2(i_)=slipG(i)
         sigmaG2(i_)=sigmaG(i)
         tauG2(i_)=tauG(i)
+        !new for psi output
+        psiG2(i_)=psiG(i)
+        !end new code
       end do
       write(nout(1)) velG2
       write(nout(2)) slipG2
       write(nout(3)) sigmaG2
       write(nout(4)) tauG2
+      !new for psi output
+      write(nout(12)) psiG2
+      !end new code
 
       if(viscous) then
         do i=1, NCELLg

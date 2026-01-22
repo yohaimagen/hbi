@@ -1,9 +1,9 @@
 problem      3dht !3d half space & rectangle elements
 ncellg 9250 !number of elements
-filenumber    203 !id of output files
-interval     100 !output and checkpointing every 100 steps
+filenumber    205 !id of output files
+interval     10 !output and checkpointing every 100 steps
 nstep     10000 !time steps
-tmax   1500 !maximum time (s)
+tmax   2 !maximum time (s)
 backslip T !loading with backslip 
 vpl          1d-9 !backslip rate
 parameterfromfile T !nonuniform parameters
