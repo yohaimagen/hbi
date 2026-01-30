@@ -667,17 +667,6 @@ program main
       tau(i)=rdata(m-NCELLg+i_)
     end do
 
-    !new state input code
-    write(fname,'("output/psi",i0,".dat")') number
-    open(nout(1),file=fname,form='unformatted',access='stream')
-    read(nout(1)) rdata
-    close(nout(1))
-    do i=1,NCELL
-      i_=st_sum%lodc(i)
-      psi(i)=rdata(m-NCELLg+i_)
-    end do
-    ! --- NEW CODE END ---
-
     if(viscous) then
       write(fname,'("output/vflow",i0,".dat")') number
       open(nout(1),file=fname,form='unformatted',access='stream')
@@ -757,10 +746,8 @@ program main
     nout(5)=nout(4)+np
     !new state output code
     write(fname,'("output/psi",i0,".dat")') number
-    ! Using nout(12) assuming 1-11 are taken or reserved. 
-    ! Ensure nout array is large enough (declared as nout(20) at top, so it is safe).
-    nout(12)=nout(11)+1 
-    open(nout(12),file=fname,form='unformatted',access='stream',status='replace')
+    nout(5)=nout(4)+np
+    open(nout(5),file=fname,form='unformatted',access='stream',status='old',position='append')
     ! --- NEW CODE END ---
     write(fname,'("output/EQslip",i0,".dat")') number
     open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
@@ -923,10 +910,8 @@ program main
       open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
       !new state output code
       write(fname,'("output/psi",i0,".dat")') number
-      ! Using nout(12) assuming 1-11 are taken or reserved. 
-      ! Ensure nout array is large enough (declared as nout(20) at top, so it is safe).
-      nout(12)=nout(11)+1 
-      open(nout(12),file=fname,form='unformatted',access='stream',status='replace')
+      nout(5)=nout(4)+1
+      open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
       ! --- NEW CODE END ---
       
       if(viscous) then
