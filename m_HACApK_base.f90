@@ -1563,6 +1563,153 @@ endfunction
 ! if(st_ctl%param(1)>1) print*,'HACApK_setcutthread; lthr=',lthr(0:nthr)
  end subroutine HACApK_setcutthread
 
+!***HACApK_save_leafmtxp
+ subroutine HACApK_save_leafmtxp(st_leafmtxp, filename, icomm)
+  implicit none
+  include 'mpif.h'
+  type(st_HACApK_leafmtxp), intent(in) :: st_leafmtxp
+  character(len=*), intent(in) :: filename
+  integer, intent(in) :: icomm
+  integer :: ierr, my_rank, nlf_local, funit, nlf_all
+  integer, allocatable :: nlf_per_rank(:), displs_nlf(:)
+
+  call MPI_Comm_rank(icomm, my_rank, ierr)
+
+  nlf_local = st_leafmtxp%nlf
+  call MPI_Gather(nlf_local, 1, MPI_INTEGER, nlf_per_rank, 1, MPI_INTEGER, 0, icomm, ierr)
+  
+  if (my_rank == 0) then
+    nlf_all = sum(nlf_per_rank)
+    allocate(displs_nlf(size(nlf_per_rank)))
+    displs_nlf(1) = 0
+    do i = 2, size(nlf_per_rank)
+      displs_nlf(i) = displs_nlf(i-1) + nlf_per_rank(i-1)
+    end do
+    
+    funit = 100 + my_rank ! Use a unique file unit for each process
+
+    open(funit, file=filename // '_proc' // trim(adjustl(char(my_rank))) // '.dat', form='unformatted', access='stream', status='replace', iostat=ierr)
+    if (ierr /= 0) then
+      write(*,*) 'Error opening file for saving HACApK_leafmtxp on rank ', my_rank
+      stop
+    end if
+
+    write(funit) st_leafmtxp%nd, st_leafmtxp%nlf, st_leafmtxp%nlfkt, st_leafmtxp%ktmax, &
+                 st_leafmtxp%nbl, st_leafmtxp%nlfalt, st_leafmtxp%nlfl, st_leafmtxp%nlft, &
+                 st_leafmtxp%ndlfs, st_leafmtxp%ndtfs, st_leafmtxp%st_lf_stride
+
+    ! Save allocated arrays (pointers)
+    if (associated(st_leafmtxp%lnlfl2g)) write(funit) st_leafmtxp%lnlfl2g
+    if (associated(st_leafmtxp%lbstrtl)) write(funit) st_leafmtxp%lbstrtl
+    if (associated(st_leafmtxp%lbstrtt)) write(funit) st_leafmtxp%lbstrtt
+    if (associated(st_leafmtxp%lbndl)) write(funit) st_leafmtxp%lbndl
+    if (associated(st_leafmtxp%lbndt)) write(funit) st_leafmtxp%lbndt
+    if (associated(st_leafmtxp%lbndlfs)) write(funit) st_leafmtxp%lbndlfs
+    if (associated(st_leafmtxp%lbndtfs)) write(funit) st_leafmtxp%lbndtfs
+    if (associated(st_leafmtxp%lbl2t)) write(funit) st_leafmtxp%lbl2t
+    
+    ! Save st_lf array of derived types
+    do i = 1, st_leafmtxp%nlf
+      write(funit) st_leafmtxp%st_lf(i)%ltmtx, st_leafmtxp%st_lf(i)%kt, &
+                   st_leafmtxp%st_lf(i)%nstrtl, st_leafmtxp%st_lf(i)%ndl, &
+                   st_leafmtxp%st_lf(i)%nstrtt, st_leafmtxp%st_lf(i)%ndt, &
+                   st_leafmtxp%st_lf(i)%lttcl, st_leafmtxp%st_lf(i)%lttct, &
+                   st_leafmtxp%st_lf(i)%nlf, st_leafmtxp%st_lf(i)%a1size
+      if (associated(st_leafmtxp%st_lf(i)%a1)) write(funit) st_leafmtxp%st_lf(i)%a1
+      if (associated(st_leafmtxp%st_lf(i)%a2)) write(funit) st_leafmtxp%st_lf(i)%a2
+      ! Handle recursive st_lf if present and associated
+      ! This part might need further refinement depending on actual data structure usage
+    end do
+
+    close(funit)
+  end if
+
+  call MPI_Barrier(icomm, ierr)
+
+ end subroutine HACApK_save_leafmtxp
+
+!***HACApK_load_leafmtxp
+ subroutine HACApK_load_leafmtxp(st_leafmtxp, filename, icomm)
+  implicit none
+  include 'mpif.h'
+  type(st_HACApK_leafmtxp), intent(out) :: st_leafmtxp
+  character(len=*), intent(in) :: filename
+  integer, intent(in) :: icomm
+  integer :: ierr, my_rank, funit
+  integer :: dim1, dim2
+
+  call MPI_Comm_rank(icomm, my_rank, ierr)
+  
+  funit = 100 + my_rank ! Use a unique file unit for each process
+
+  open(funit, file=filename // '_proc' // trim(adjustl(char(my_rank))) // '.dat', form='unformatted', access='stream', status='old', iostat=ierr)
+  if (ierr /= 0) then
+    write(*,*) 'Error opening file for loading HACApK_leafmtxp on rank ', my_rank
+    stop
+  end if
+
+  read(funit) st_leafmtxp%nd, st_leafmtxp%nlf, st_leafmtxp%nlfkt, st_leafmtxp%ktmax, &
+              st_leafmtxp%nbl, st_leafmtxp%nlfalt, st_leafmtxp%nlfl, st_leafmtxp%nlft, &
+              st_leafmtxp%ndlfs, st_leafmtxp%ndtfs, st_leafmtxp%st_lf_stride
+
+  ! Allocate and load allocated arrays (pointers)
+  if (st_leafmtxp%nlfalt > 0) then ! Assuming lnlfl2g uses nlfalt dimensions
+    allocate(st_leafmtxp%lnlfl2g(st_leafmtxp%nlft, st_leafmtxp%nlfl))
+    read(funit) st_leafmtxp%lnlfl2g
+  end if
+  if (st_leafmtxp%nlfalt > 0) then ! Assuming lbstrtl uses nlfalt dimensions
+    allocate(st_leafmtxp%lbstrtl(st_leafmtxp%nlfalt))
+    read(funit) st_leafmtxp%lbstrtl
+  end if
+  if (st_leafmtxp%nlfalt > 0) then ! Assuming lbstrtt uses nlfalt dimensions
+    allocate(st_leafmtxp%lbstrtt(st_leafmtxp%nlfalt))
+    read(funit) st_leafmtxp%lbstrtt
+  end if
+  if (st_leafmtxp%nlfalt > 0) then ! Assuming lbndl uses nlfalt dimensions
+    allocate(st_leafmtxp%lbndl(st_leafmtxp%nlfalt))
+    read(funit) st_leafmtxp%lbndl
+  end if
+  if (st_leafmtxp%nlfalt > 0) then ! Assuming lbndt uses nlfalt dimensions
+    allocate(st_leafmtxp%lbndt(st_leafmtxp%nlfalt))
+    read(funit) st_leafmtxp%lbndt
+  end if
+  if (st_leafmtxp%nlfl > 0) then ! Assuming lbndlfs uses nlfl dimensions (or nrank_l)
+    allocate(st_leafmtxp%lbndlfs(st_leafmtxp%nlfl)) ! This might need adjustment based on actual array size
+    read(funit) st_leafmtxp%lbndlfs
+  end if
+  if (st_leafmtxp%nlft > 0) then ! Assuming lbndtfs uses nlft dimensions (or nrank_t)
+    allocate(st_leafmtxp%lbndtfs(st_leafmtxp%nlft)) ! This might need adjustment based on actual array size
+    read(funit) st_leafmtxp%lbndtfs
+  end if
+  if (st_leafmtxp%nbl > 0) then ! Assuming lbl2t uses nbl dimensions
+    allocate(st_leafmtxp%lbl2t(st_leafmtxp%nbl))
+    read(funit) st_leafmtxp%lbl2t
+  end if
+
+  ! Load st_lf array of derived types
+  allocate(st_leafmtxp%st_lf(st_leafmtxp%nlf))
+  do i = 1, st_leafmtxp%nlf
+    read(funit) st_leafmtxp%st_lf(i)%ltmtx, st_leafmtxp%st_lf(i)%kt, &
+                st_leafmtxp%st_lf(i)%nstrtl, st_leafmtxp%st_lf(i)%ndl, &
+                st_leafmtxp%st_lf(i)%nstrtt, st_leafmtxp%st_lf(i)%ndt, &
+                st_leafmtxp%st_lf(i)%lttcl, st_leafmtxp%st_lf(i)%lttct, &
+                st_leafmtxp%st_lf(i)%nlf, st_leafmtxp%st_lf(i)%a1size
+    
+    ! Allocate and load a1, a2
+    if (st_leafmtxp%st_lf(i)%ndl > 0 .and. st_leafmtxp%st_lf(i)%kt > 0) then
+      allocate(st_leafmtxp%st_lf(i)%a1(st_leafmtxp%st_lf(i)%ndt, st_leafmtxp%st_lf(i)%kt))
+      read(funit) st_leafmtxp%st_lf(i)%a1
+      allocate(st_leafmtxp%st_lf(i)%a2(st_leafmtxp%st_lf(i)%ndl, st_leafmtxp%st_lf(i)%kt))
+      read(funit) st_leafmtxp%st_lf(i)%a2
+    end if
+    ! Handle recursive st_lf if present
+  end do
+
+  close(funit)
+  call MPI_Barrier(icomm, ierr)
+
+ end subroutine HACApK_load_leafmtxp
+
 !***HACApK_accuracy_leafmtx_body
  subroutine HACApK_accuracy_leafmtx_body(zhnrm,zanrm,st_leafmtxp,st_bemv,lodl,lodt,lpmd,nofc,nffc)
  type(st_HACApK_leafmtxp) :: st_leafmtxp
