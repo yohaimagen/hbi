@@ -64,8 +64,8 @@ program main
 
   !controls
   logical::aftershock,buffer,nuclei,slipping,outfield,slipevery,limitsigma,dcscale,slowslip,slipfinal,outpertime
-  logical::initcondfromfile,parameterfromfile,backslip,sigmaconst,foward,inverse,geofromfile,restart,latticeh,pressuredependent,pfconst
-  character*128::fname,dum,law,input_file,problem,geofile,param,pvalue,slipmode,model,parameter_file,outdir,command,bcl,bcr,evlaw,setting
+  logical::initcondfromfile,parameterfromfile,backslip,sigmaconst,foward,inverse,geofromfile,restart,latticeh,pressuredependent,pfconst,save_greens_functions,load_greens_functions
+  character*128::fname,dum,law,input_file,problem,geofile,param,pvalue,slipmode,model,parameter_file,outdir,command,bcl,bcr,evlaw,setting,greens_functions_file_s,greens_functions_file_n
   real(8)::a0,a1,b0,dc0,sr,omega,theta,dtau,tiny,moment,wid,normal,ieta,meanmu,meanmuG,meandisp,meandispG,moment0,mvel,mvelG
   real(8)::vc0,mu0,onset_time,tr,vw0,fw0,velmin,tauinit,intau,trelax,maxnorm,maxnormG,minnorm,minnormG,sigmainit,muinit
   real(8)::r,vpl,outv,xc,zc,dr,dx,dz,lapse,dlapse,vmaxeventi,sparam,tmax,dtmax,tout,dummy(10)
@@ -160,6 +160,10 @@ program main
   kT=1e12
   kL=1e8
   Bs=0.0
+  save_greens_functions=.false.
+  load_greens_functions=.false.
+  greens_functions_file_s=' '
+  greens_functions_file_n=' '
   !number=0
 
 
@@ -311,6 +315,14 @@ program main
       read (pvalue,'(a)') setting
     case('model')
       read (pvalue,'(a)') model
+    case('save_greens_functions')
+      read (pvalue,*) save_greens_functions
+    case('load_greens_functions')
+      read (pvalue,*) load_greens_functions
+    case('greens_functions_file_s')
+      read (pvalue,'(a)') greens_functions_file_s
+    case('greens_functions_file_n')
+      read (pvalue,'(a)') greens_functions_file_n
     end select
   end do
   close(33)
@@ -557,29 +569,46 @@ program main
   end select
 
   !generate kernel (H-matrix aprrox)
-  if(my_rank==0) write(*,*) 'Generating kernel'
-  do i=1,NCELLg
-    coord(i,1)=xcol(i)
-    coord(i,2)=ycol(i)
-    coord(i,3)=zcol(i)
-  end do
-  !ycol=0d0
-  call MPI_BARRIER(MPI_COMM_WORLD,ierr)
-  !if(np==1) st_ctl%param(43)=1
-  st_ctl%param(8)=20
-  !st_ctl%param(7)=1
-  !st_ctl%param(12)=1
-  select case(problem)
-  case('2dp','2dpah','2dn3','3dp')
-    sigmaconst=.true.
-  end select
-  st_bemv%md='s'
-  st_bemv%v='s'
-  lrtrn=HACApK_generate(st_leafmtxp_s,st_bemv,st_ctl,coord,eps_h)
-  if(.not.sigmaconst) then
-    st_bemv%v='n'
-    lrtrn=HACApK_generate(st_leafmtxp_n,st_bemv,st_ctl,coord,eps_h)
+  if(load_greens_functions) then
+    if(my_rank==0) write(*,*) 'Loading Green''s functions'
+    call HACApK_load_leafmtxp(st_leafmtxp_s, greens_functions_file_s, icomm)
+    if(.not.sigmaconst) then
+      call HACApK_load_leafmtxp(st_leafmtxp_n, greens_functions_file_n, icomm)
+    end if
+  else
+    if(my_rank==0) write(*,*) 'Generating kernel'
+    do i=1,NCELLg
+      coord(i,1)=xcol(i)
+      coord(i,2)=ycol(i)
+      coord(i,3)=zcol(i)
+    end do
+    !ycol=0d0
+    call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+    !if(np==1) st_ctl%param(43)=1
+    st_ctl%param(8)=20
+    !st_ctl%param(7)=1
+    !st_ctl%param(12)=1
+    select case(problem)
+    case('2dp','2dpah','2dn3','3dp')
+      sigmaconst=.true.
+    end select
+    st_bemv%md='s'
+    st_bemv%v='s'
+    lrtrn=HACApK_generate(st_leafmtxp_s,st_bemv,st_ctl,coord,eps_h)
+    if(.not.sigmaconst) then
+      st_bemv%v='n'
+      lrtrn=HACApK_generate(st_leafmtxp_n,st_bemv,st_ctl,coord,eps_h)
+    end if
   end if
+
+  if(save_greens_functions) then
+    if(my_rank==0) write(*,*) 'Saving Green''s functions'
+    call HACApK_save_leafmtxp(st_leafmtxp_s, greens_functions_file_s, icomm)
+    if(.not.sigmaconst) then
+      call HACApK_save_leafmtxp(st_leafmtxp_n, greens_functions_file_n, icomm)
+    end if
+  end if
+  
   !if(latticeh) then
   lrtrn=HACApK_construct_LH(st_LHp_s,st_leafmtxp_s,st_bemv,st_ctl,coord,eps_h)
   allocate(wws(st_leafmtxp_s%ndlfs))
