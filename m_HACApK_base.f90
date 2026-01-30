@@ -1570,19 +1570,22 @@ endfunction
   type(st_HACApK_leafmtxp), intent(in) :: st_leafmtxp
   character(len=*), intent(in) :: filename
   integer, intent(in) :: icomm
-  integer :: ierr, my_rank, nlf_local, funit, nlf_all
+  integer :: ierr, my_rank, nlf_local, funit, nlf_all, nproc
   integer, allocatable :: nlf_per_rank(:), displs_nlf(:)
+  integer :: i ! Explicitly declare loop variable i
 
   call MPI_Comm_rank(icomm, my_rank, ierr)
+  call MPI_Comm_size(icomm, nproc, ierr)
 
   nlf_local = st_leafmtxp%nlf
+  allocate(nlf_per_rank(nproc)) ! Allocate before use
   call MPI_Gather(nlf_local, 1, MPI_INTEGER, nlf_per_rank, 1, MPI_INTEGER, 0, icomm, ierr)
   
   if (my_rank == 0) then
     nlf_all = sum(nlf_per_rank)
-    allocate(displs_nlf(size(nlf_per_rank)))
+    allocate(displs_nlf(nproc)) ! Correct allocation size
     displs_nlf(1) = 0
-    do i = 2, size(nlf_per_rank)
+    do i = 2, nproc ! Corrected loop bound
       displs_nlf(i) = displs_nlf(i-1) + nlf_per_rank(i-1)
     end do
     
@@ -1603,7 +1606,7 @@ endfunction
     if (associated(st_leafmtxp%lbstrtl)) write(funit) st_leafmtxp%lbstrtl
     if (associated(st_leafmtxp%lbstrtt)) write(funit) st_leafmtxp%lbstrtt
     if (associated(st_leafmtxp%lbndl)) write(funit) st_leafmtxp%lbndl
-    if (associated(st_leafmtxp%lbndt)) write(funit) st_leafmtxp%lbndt
+    if (associated(st_leafmtxp%lbndt)) write(funit) st_leafmtxp%lbndt ! Corrected from st_leafmtxp%lbndl
     if (associated(st_leafmtxp%lbndlfs)) write(funit) st_leafmtxp%lbndlfs
     if (associated(st_leafmtxp%lbndtfs)) write(funit) st_leafmtxp%lbndtfs
     if (associated(st_leafmtxp%lbl2t)) write(funit) st_leafmtxp%lbl2t
@@ -1623,7 +1626,8 @@ endfunction
 
     close(funit)
   end if
-
+  deallocate(nlf_per_rank)
+  if (my_rank == 0) deallocate(displs_nlf)
   call MPI_Barrier(icomm, ierr)
 
  end subroutine HACApK_save_leafmtxp
@@ -1637,6 +1641,7 @@ endfunction
   integer, intent(in) :: icomm
   integer :: ierr, my_rank, funit
   integer :: dim1, dim2
+  integer :: i ! Explicitly declare loop variable i
 
   call MPI_Comm_rank(icomm, my_rank, ierr)
   
@@ -1653,7 +1658,7 @@ endfunction
               st_leafmtxp%ndlfs, st_leafmtxp%ndtfs, st_leafmtxp%st_lf_stride
 
   ! Allocate and load allocated arrays (pointers)
-  if (st_leafmtxp%nlfalt > 0) then ! Assuming lnlfl2g uses nlfalt dimensions
+  if (st_leafmtxp%nlfl > 0 .and. st_leafmtxp%nlft > 0) then ! Assuming lnlfl2g uses nlft x nlfl dimensions
     allocate(st_leafmtxp%lnlfl2g(st_leafmtxp%nlft, st_leafmtxp%nlfl))
     read(funit) st_leafmtxp%lnlfl2g
   end if
@@ -1673,12 +1678,12 @@ endfunction
     allocate(st_leafmtxp%lbndt(st_leafmtxp%nlfalt))
     read(funit) st_leafmtxp%lbndt
   end if
-  if (st_leafmtxp%nlfl > 0) then ! Assuming lbndlfs uses nlfl dimensions (or nrank_l)
-    allocate(st_leafmtxp%lbndlfs(st_leafmtxp%nlfl)) ! This might need adjustment based on actual array size
+  if (st_leafmtxp%nlfl > 0) then ! Assuming lbndlfs uses nlfl dimensions
+    allocate(st_leafmtxp%lbndlfs(st_leafmtxp%nlfl))
     read(funit) st_leafmtxp%lbndlfs
   end if
-  if (st_leafmtxp%nlft > 0) then ! Assuming lbndtfs uses nlft dimensions (or nrank_t)
-    allocate(st_leafmtxp%lbndtfs(st_leafmtxp%nlft)) ! This might need adjustment based on actual array size
+  if (st_leafmtxp%nlft > 0) then ! Assuming lbndtfs uses nlft dimensions
+    allocate(st_leafmtxp%lbndtfs(st_leafmtxp%nlft))
     read(funit) st_leafmtxp%lbndtfs
   end if
   if (st_leafmtxp%nbl > 0) then ! Assuming lbl2t uses nbl dimensions
@@ -1687,23 +1692,28 @@ endfunction
   end if
 
   ! Load st_lf array of derived types
-  allocate(st_leafmtxp%st_lf(st_leafmtxp%nlf))
-  do i = 1, st_leafmtxp%nlf
-    read(funit) st_leafmtxp%st_lf(i)%ltmtx, st_leafmtxp%st_lf(i)%kt, &
-                st_leafmtxp%st_lf(i)%nstrtl, st_leafmtxp%st_lf(i)%ndl, &
-                st_leafmtxp%st_lf(i)%nstrtt, st_leafmtxp%st_lf(i)%ndt, &
-                st_leafmtxp%st_lf(i)%lttcl, st_leafmtxp%st_lf(i)%lttct, &
-                st_leafmtxp%st_lf(i)%nlf, st_leafmtxp%st_lf(i)%a1size
-    
-    ! Allocate and load a1, a2
-    if (st_leafmtxp%st_lf(i)%ndl > 0 .and. st_leafmtxp%st_lf(i)%kt > 0) then
-      allocate(st_leafmtxp%st_lf(i)%a1(st_leafmtxp%st_lf(i)%ndt, st_leafmtxp%st_lf(i)%kt))
-      read(funit) st_leafmtxp%st_lf(i)%a1
-      allocate(st_leafmtxp%st_lf(i)%a2(st_leafmtxp%st_lf(i)%ndl, st_leafmtxp%st_lf(i)%kt))
-      read(funit) st_leafmtxp%st_lf(i)%a2
-    end if
-    ! Handle recursive st_lf if present
-  end do
+  if (st_leafmtxp%nlf > 0) then
+    allocate(st_leafmtxp%st_lf(st_leafmtxp%nlf))
+    do i = 1, st_leafmtxp%nlf
+      read(funit) st_leafmtxp%st_lf(i)%ltmtx, st_leafmtxp%st_lf(i)%kt, &
+                  st_leafmtxp%st_lf(i)%nstrtl, st_leafmtxp%st_lf(i)%ndl, &
+                  st_leafmtxp%st_lf(i)%nstrtt, st_leafmtxp%st_lf(i)%ndt, &
+                  st_leafmtxp%st_lf(i)%lttcl, st_leafmtxp%st_lf(i)%lttct, &
+                  st_leafmtxp%st_lf(i)%nlf, st_leafmtxp%st_lf(i)%a1size
+      
+      ! Allocate and load a1, a2
+      if (st_leafmtxp%st_lf(i)%ltmtx == 1 .and. st_leafmtxp%st_lf(i)%ndl > 0 .and. st_leafmtxp%st_lf(i)%kt > 0) then
+        allocate(st_leafmtxp%st_lf(i)%a1(st_leafmtxp%st_lf(i)%ndt, st_leafmtxp%st_lf(i)%kt))
+        read(funit) st_leafmtxp%st_lf(i)%a1
+        allocate(st_leafmtxp%st_lf(i)%a2(st_leafmtxp%st_lf(i)%ndl, st_leafmtxp%st_lf(i)%kt))
+        read(funit) st_leafmtxp%st_lf(i)%a2
+      else if (st_leafmtxp%st_lf(i)%ltmtx == 2 .and. st_leafmtxp%st_lf(i)%ndl > 0 .and. st_leafmtxp%st_lf(i)%ndt > 0) then
+        allocate(st_leafmtxp%st_lf(i)%a1(st_leafmtxp%st_lf(i)%ndt, st_leafmtxp%st_lf(i)%ndl))
+        read(funit) st_leafmtxp%st_lf(i)%a1
+      end if
+      ! Handle recursive st_lf if present
+    end do
+  end if
 
   close(funit)
   call MPI_Barrier(icomm, ierr)
