@@ -746,8 +746,8 @@ program main
     nout(5)=nout(4)+np
     !new state output code
     write(fname,'("output/psi",i0,".dat")') number
-    nout(5)=nout(4)+np
-    open(nout(5),file=fname,form='unformatted',access='stream',status='old',position='append')
+    nout(12)=120
+    open(nout(12),file=fname,form='unformatted',access='stream',status='old',position='append')
     ! --- NEW CODE END ---
     write(fname,'("output/EQslip",i0,".dat")') number
     open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
@@ -910,8 +910,8 @@ program main
       open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
       !new state output code
       write(fname,'("output/psi",i0,".dat")') number
-      nout(5)=nout(4)+1
-      open(nout(5),file=fname,form='unformatted',access='stream',status='replace')
+      nout(12)=120
+      open(nout(12),file=fname,form='unformatted',access='stream',status='replace')
       ! --- NEW CODE END ---
       
       if(viscous) then
